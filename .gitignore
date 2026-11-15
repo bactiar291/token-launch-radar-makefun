@@ -1,0 +1,31 @@
+# Generated artifacts and local data
+out/
+output/
+outputs/
+data.js
+board.json
+dossier.json
+snapshot.json
+input/
+# Caches and dependencies
+node_modules/
+__pycache__/
+*.pyc
+.cache/
+.venv/
+# Credentials and native logs must never be committed
+.env
+.env.*
+*.pem
+*.key
+*keypair*.json
+wallet*.json
+credentials*
+transcripts*
+*.jsonl
+native-logs/
+sessions/
+logs/
+.hermes/
+.codex/
+.DS_Store

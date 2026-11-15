@@ -1,0 +1,5 @@
+import fs from 'node:fs';
+const out=process.argv[2];const b=JSON.parse(fs.readFileSync(out+'/board.json'));const d=JSON.parse(fs.readFileSync(out+'/data.js','utf8').match(/window\.FIELD_DATA=(.*);\n/s)[1]);
+const rows=b.rows;const issues=[];const snap=JSON.parse(fs.readFileSync('/tmp/makefun/token-radar-01-kit/input/snapshot.json'));
+if(rows.length<100||rows.length>4000)issues.push('row count');if(new Set(rows.map(r=>r.slug)).size!==rows.length)issues.push('duplicate slugs');if(snap.watchlist.some(s=>!rows.some(r=>r.slug===s)))issues.push('watch coverage');for(let i=0;i<rows.length;i++){if(rows[i].rank!==i+1)issues.push('rank '+i);if(i&&rows[i].implied_value_usd>rows[i-1].implied_value_usd)issues.push('order '+i);if(rows[i].farm_steps.some(s=>s.trim().length<20||s.trim().length>600))issues.push('steps '+rows[i].slug)}
+console.log(JSON.stringify({rows:rows.length,watchlist:snap.watchlist.length,watchCovered:snap.watchlist.every(s=>rows.some(r=>r.slug===s)),first:rows.slice(0,3).map(r=>[r.rank,r.slug,r.implied_value_usd,r.low_usd,r.high_usd]),dataRows:d.rows.length,issues,bytes:fs.statSync(out+'/board.json').size},null,2));if(issues.length)process.exit(1);
