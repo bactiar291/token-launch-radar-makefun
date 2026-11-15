@@ -97,27 +97,40 @@
       model:{ratio,growth_multiplier:growth,tenure_multiplier:tenure,scale:settings.scale,bounded_growth_pct:bounded,category_weight:weight,cohort_n:cohort.n,global_median:g.median,category_median:cohort.median??null,uncertainty,missing_count:missing},
       uncertainty_reasons:[cohort.n<MIN_PEERS?'Sparse category: global fallback':'Category peers remain imperfect substitutes',...(bounded===null?['7d change unknown; neutral factor']:[]),...(age===null?['Tracking tenure unknown; neutral factor']:[]),...(structure?['Structure / access ambiguity']:[]),'Scenario envelope, not a statistical confidence interval']};
   }
+  const rangeText=(r,unit='USD')=>r===null?'Unknown':(unit==='USD'?'$':'')+(r[0]===r[1]?r[0]:r[0]+'–'+r[1])+(unit==='min'?' min':'');
+  function stepText(s) {
+    return `${s.title}: ${s.action} Assumed budget: capital at risk ${rangeText(s.capital_at_risk_usd_range)}; fees ${rangeText(s.estimated_fee_usd_range)}; active ${rangeText(s.time_minutes_range,'min')}. Prerequisite: ${s.prerequisite} Check: ${s.completion_evidence}${s.exit_condition?' Exit: '+s.exit_condition:''}`;
+  }
   function farmPlan(p) {
-    const c=p.category||'Unknown', chain=p.chains[0]||'unreported chain';
-    const monitor=accessCategories.has(c)||assetCategories.has(c)||!['Lending','Dexs','Yield','Yield Aggregator','Farm','Liquidity Manager','CDP','CDP Manager','Restaking','Staking Pool','Basis Trading','Leveraged Farming'].includes(c);
-    const fees=chain==='Ethereum'?'$15–60':chain==='Solana'?'$0.20–3':/Base|Arbitrum|Optimism|Polygon|BSC|Avalanche|Unichain/.test(chain)?'$1–10':'$5–30 (chain pricing unverified)';
-    const capital=monitor?'$0 until access is verified':'$100–300 maximum pilot';
-    let action='Evaluate one transparent, unlevered vault; verify the accepted asset, strategy, withdrawal queue and loss allocation before a small pilot.';
-    let risks='Contract loss, strategy loss, withdrawal queues and asset depegs';
-    if(c==='Lending'){action='If permissionless supply is confirmed, consider supplying one supported asset only; do not borrow or loop. Read utilization and withdrawal limits first.';risks='Bad debt, oracle faults, depeg and withdrawal illiquidity';}
-    if(c==='Dexs'||c==='Liquidity Manager'){action='If an audited public pool exists, simulate a small two-asset LP position; check pool fees, range and exit liquidity. Skip if impermanent loss is not understood.';risks='Impermanent loss, adverse selection, contract faults and depegs';}
-    if(c==='CDP'||c==='CDP Manager'){action='Research collateral ratios and redemption mechanics before any pilot; do not mint debt solely for activity. Prefer monitoring until liquidation exposure is understood.';risks='Liquidation, oracle error, redemption failure and stablecoin depeg';}
-    if(c==='Restaking'||c==='Staking Pool'){action='Verify supported assets, validator or operator selection, slashing rules and the full unbonding period before considering an unlevered pilot.';risks='Slashing, operator failures, receipt depeg and delayed exits';}
-    if(c==='Leveraged Farming'||c==='Basis Trading'){action='Model funding reversal and liquidation in a spreadsheet; only consider an unlevered mode if documented. Otherwise keep capital at $0 and monitor.';risks='Funding reversal, liquidation, counterparty exposure and strategy loss';}
+    const c=p.category||'Unknown', chain=[...(p.chains||[])].sort(cmp)[0]||'unreported chain';
+    const supported=['Lending','Dexs','Yield','Yield Aggregator','Farm','Liquidity Manager'];
+    const monitor=flags(p).length>0||!supported.includes(c)||chain==='unreported chain';
+    const knownFee=chain==='Ethereum'?[15,60]:chain==='Solana'?[.2,3]:['Base','Arbitrum','Optimism','Polygon','BSC','Avalanche','Unichain'].includes(chain)?[1,10]:null;
+    const capitalRange=monitor?[0,0]:[100,300];
+    // Allocate one transaction budget across approval/setup, entry and exit; never repeat the total.
+    const allocation=part=>monitor?[0,0]:knownFee?.map(v=>Math.round(v*part*100)/100)??null;
+    const step=(title,action,capital,fee,time,prerequisite,completion_evidence,exit_condition=null)=>({title,action,capital_at_risk_usd_range:capital,estimated_fee_usd_range:fee,time_minutes_range:time,prerequisite,completion_evidence,exit_condition,assumption_label:'Authored planning assumption; not a quote or reward promise'});
+    let action='If verified, deposit once into one transparent unlevered vault; read strategy loss allocation and withdrawal queue first.';
+    let check='Save position receipt, asset amounts and withdrawal terms.';
+    let risks='Contract loss, strategy loss, withdrawal queues and asset depegs.';
+    if(c==='Lending') { action='If permissionless supply is verified, supply one supported asset once; do not borrow or loop. Check utilization and withdrawal limits.'; check='Save supply receipt, asset balance and withdrawal preview.'; risks='Bad debt, oracle faults, depeg and withdrawal illiquidity.'; }
+    if(c==='Dexs'||c==='Liquidity Manager') { action='If verified, simulate then open one small two-asset LP position. Check pool fees, range and impermanent loss; skip if unclear.'; check='Save simulation, both asset amounts and exit quote.'; risks='Impermanent loss, adverse selection, contract faults and depegs.'; }
     const steps=[
-      `Research ${p.name} (${c}) for 30–45 minutes: independently locate official documentation, verify contracts and token identifiers. The snapshot does not prove launch plans, reward eligibility or current access.`,
-      monitor?`Access check, not a deposit instruction: allocate ${capital}. Spend 20–30 minutes checking ${c} eligibility, jurisdiction, minimums, custody and redemption terms. If access is closed or unclear, remain research-only.`:`Pilot budget assumption: ${capital}, never borrowed funds. Reserve ${fees} total for setup and exit on ${chain}; get a current quote first. Budget 20–30 minutes and skip if fees exceed 5% of capital.`,
-      monitor?`For ${c}, review the underlying asset or mandate, public risk disclosures and who can redeem. Record unanswered questions; do not assume a retail vault or deposit route exists. Estimated time: 30 minutes, $0 on-chain spend.`:action+' Estimated review time: 20 minutes; assets and supported routes are not supplied by the snapshot.',
-      `Review once a week for four weeks, 10 minutes per review. Log access changes, fees, withdrawals and any official reward terms. Do not repeat transactions to manufacture volume; no action here is known to qualify for rewards.`,
-      monitor?'Stop after four weeks if public access and independent token rights remain unverified. Reopen research only on documented changes; no committed capital and no invented holding requirement.':`Exit after the four-week pilot or sooner if losses reach 10%, a depeg exceeds 2%, or withdrawal / security warnings appear; these are review triggers, not guaranteed executable stop orders. Reserve the exit fee and allow documented lockups.`,
-      `Risk note: ${monitor?'Custody, legal restrictions, unclear token rights, asset backing and redemption risk':risks}. Capital can be lost in full. Capital, fee and time ranges are authored planning assumptions, not snapshot facts or promised rewards.`
+      step('Establish identity','Locate official documentation independently; compare token identifiers, contracts and audit scope. No launch or reward is established.',[0,0],[0,0],[30,45],'No wallet connection needed.','Save dated sources and unresolved questions.','Stop on conflicting identity or security warnings.'),
+      step('Verify access & exit',monitor?'Check eligibility, jurisdiction, custody, minimums and redemption rights. Closed or unclear access remains research-only.':'Confirm public access, supported assets, chain, lockups and a working withdrawal preview; no route is supplied by this snapshot.',[0,0],[0,0],[20,30],'Identity sources agree.','Record access and exit terms, or mark them unknown.','Unverified terms mean no deposit.'),
+      monitor?step('Inspect product risk','Read asset backing, mandate and loss allocation; do not assume a retail deposit route exists.',[0,0],[0,0],[20,30],'Public disclosures available.','Record risks and who can redeem.','Missing disclosure keeps capital at $0.'):
+      step('Set a capped budget','Use existing assets on the selected chain. Quote approval, entry and exit together; skip above 5% of pilot capital. No bridging budget is included.',[0,0],allocation(.2),[15,25],'Verified route; quote within cap.','Record quotes; limit approvals to pilot amount.','Unknown fees or extra funding costs: stop and re-budget.'),
+      monitor?step('Create a watch record','Save official update sources and unanswered access questions; no wallet interaction or activity farming.',[0,0],[0,0],[10,15],'Identity and disclosure review complete.','A dated research log with next review date.'):
+      step('Run one conditional pilot',action,capitalRange,allocation(.4),[20,30],'Access verified; setup budget passed.',check,'Skip if risk or withdrawal mechanics are unclear.'),
+      step('Review four times','Review weekly for four weeks; log security, access, withdrawal and reward-term changes. Never manufacture volume.',capitalRange,[0,0],[40,60],'Research log or pilot receipt exists.','Four dated entries; 10–15 active minutes each.',monitor?'Keep capital at $0; reopen only on documented changes.':'Review exit on 10% loss, 2% depeg or security/withdrawal warning.'),
+      monitor?step('Close or renew research','After four weeks, archive unresolved eligibility and token rights; renew only with documented new evidence.',[0,0],[0,0],[10,15],'Four reviews complete.','Dated archive or explicit next research question.'):
+      step('Exit & reconcile','Request withdrawal after four weeks or an earlier risk trigger; check residual approvals. Lockups can delay settlement.',capitalRange,allocation(.4),[15,25],'Exit reserve retained; terms allow withdrawal.','Save receipt, returned assets and remaining approvals.','Triggers are review rules, not guaranteed stop orders.')
     ];
-    return {mode:monitor?'Monitor / access check':'Conditional pilot',capital,fees:monitor?'$0 on-chain; research only':fees,chain,horizon:'4-week review',farm_steps:steps};
+    const sum=key=>steps.some(s=>s[key]===null)?null:[0,1].map(i=>Math.round(steps.reduce((n,s)=>n+s[key][i],0)*100)/100);
+    const totals={capital_at_risk_usd_range:capitalRange,estimated_fee_usd_range:sum('estimated_fee_usd_range'),active_time_minutes_range:sum('time_minutes_range'),review_minutes_range:steps[4].time_minutes_range,review_count:4,elapsed_review_days:28,lockup_days_range:null};
+    return {mode:monitor?'Monitor / access check':'Conditional pilot',capital:rangeText(capitalRange)+(monitor?' research only':' reused pilot capital'),fees:rangeText(totals.estimated_fee_usd_range)+(totals.estimated_fee_usd_range?' total fees':' fees; current quote required'),chain,horizon:'4-week review',steps,totals,
+      assumptions:'All costs and times are authored planning assumptions, not snapshot facts or returns. Capital is reused, not added per step; fees are separate and allocated once. Review minutes are included in active time. Lockups and settlement time are unknown.',
+      risks:monitor?'Custody, legal restrictions, unclear token rights, asset backing and redemption risk.':risks+' Capital can be lost in full.',farm_steps:steps.map(stepText)};
   }
   function build(s, parameters=DEFAULTS) {
     validateSnapshot(s);
@@ -131,5 +144,5 @@
     return {version:'fieldnote-1.0',as_of:s.as_of,source:s.source,floor_usd:s.floor_usd,parameters:{...DEFAULTS,...parameters},calibration,rows,live,
       summary:{protocols:s.protocols.length,candidates:rows.length,watchlist:s.watchlist.length,unflagged:rows.filter(p=>!p.flags.length).length,flagged:rows.filter(p=>p.flags.length).length,live:live.length}};
   }
-  root.FieldModel={DEFAULTS,MIN_PEERS,PRIOR,quantile,dateValue,ageDays,hasToken,flags,validateSnapshot,calibrate,score,farmPlan,build};
+  root.FieldModel={DEFAULTS,MIN_PEERS,PRIOR,quantile,dateValue,ageDays,hasToken,flags,validateSnapshot,calibrate,score,rangeText,stepText,farmPlan,build};
 })(globalThis);

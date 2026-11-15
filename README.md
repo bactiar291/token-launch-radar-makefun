@@ -16,7 +16,7 @@ Input defaults to `/input/snapshot.json`; `--input` accepts a file or directory.
 
 Outputs: `board.json`, `data.js`, `dashboard/`, `screenshots/`, and `dossier.json`. The exact unmodified vendored `buildDossier` is used with 65,536 text bytes, four images maximum, 512 KiB per image and the dashboard caps; main also enforces the tighter bounty dossier limit of 1.5 MiB. `--prepare` writes data and dashboard only for first screenshot capture; final builds must omit it.
 
-The supplied snapshot is not committed. All displayed source figures, names and derived sample views come from the actual supplied snapshot. Three real Chrome screenshots are included in `screenshots/`.
+The supplied snapshot is not committed. All displayed source figures, names and derived sample views come from the actual supplied snapshot. Four real Chrome screenshots are included in `screenshots/`: board, valuation with plan summary, filtered board, and the operational pilot/review/exit steps. They are unedited browser captures, not visual stand-ins.
 
 ## What the register covers
 
@@ -42,27 +42,34 @@ Sliders recompute all candidate values and global ranks, explicitly labeling sce
 
 Caveats: TVL is not revenue or token-holder cash flow. Categories hide different economics; stablecoin/receipt capitalizations are not governance value. Filters cannot perfectly resolve token identities or eliminate asset-backed peers. TVL can overlap among protocols, liquidity can leave, depegs can distort values, market-cap reporting may be incomplete, and live-market selection creates survivorship bias. No token supply, dilution, fee history, audit, or reward terms are in this input. No historical charts are fabricated from the single snapshot.
 
-Plans are authored conditional research proposals, not current protocol instructions. Open-market categories receive conservative $100–300 pilot caps with chain-dependent fee budgets, weekly reviews, and exit triggers. Institutional, closed, ambiguous asset and unsupported categories receive $0 access/monitoring plans. Supported assets and public deposit routes must be verified independently; no plan assumes they exist. Fee/time/capital ranges and stop thresholds are assumptions, not snapshot facts. No wallet, signature or execution UI exists.
+Plans are authored conditional research proposals, not current protocol instructions. `farmPlan()` returns six structured `steps`, each with an action, title, capital-at-risk range, fee range, active-minute range, prerequisite, completion evidence, optional exit condition, and an assumption label. `stepText()` generates the backward-compatible `farm_steps` strings from those same fields; the detail UI renders the structure directly.
+
+Unflagged Lending, Dexs, Liquidity Manager, Yield, Yield Aggregator and Farm records with a reported chain can receive a conditional $100–300 pilot envelope. All flagged records, missing chains, restricted products and other categories receive $0 monitor-only plans. The selected planning chain is the first alphabetically, solely for reproducibility; it is not a preferred route or evidence of where TVL is concentrated. The reader must independently verify public access, supported assets, audit scope, contracts and withdrawal terms. No specific address, route or reward qualification is asserted.
+
+Capital is reused across the pilot, reviews and exit; it is never added per step. Fees are separate and allocated once: 20% setup/approval, 40% entry and 40% exit. Chain-dependent fee ranges are assumptions, not quotes; unrecognized-chain fees remain `null` and require a quote before proceeding. Research and monitoring have explicit zero capital and fees. No bridging or asset-acquisition costs are included: use existing assets on the selected chain or stop and re-budget. Skip if total quoted fees exceed 5% of pilot capital.
+
+Totals distinguish active work (140–215 minutes for a conditional pilot; 130–195 for monitoring) from a four-week review horizon. Four 10–15 minute reviews are included in those totals, not added again. Lockup and settlement duration remain unknown. The UI shows each step's budget, prerequisite, evidence and stop/exit rule. Loss/depeg thresholds are review triggers, never executable stop-loss guarantees. All costs, time ranges and thresholds are authored planning assumptions, not snapshot facts or returns. No wallet, signature or execution UI exists.
 
 ## Local verification
 
 Model tests use only Node. Browser/structural QA uses the available Python environment with Playwright and Pillow; these are development tools, never runtime dependencies.
 
-    env -i PATH=/usr/bin:/bin node --test tests/model.test.mjs
-    env -i PATH=/usr/bin:/bin node main.ts --input /tmp/makefun/token-radar-01-kit/input --output /tmp/makefun/radar-test-preview --prepare
-    env -i PATH=/usr/bin:/bin /root/venv/bin/python3 tests/browser.py /tmp/makefun/radar-test-preview
-    env -i PATH=/usr/bin:/bin node main.ts --input /tmp/makefun/token-radar-01-kit/input --output /tmp/makefun/radar-test-a
-    env -i PATH=/usr/bin:/bin /root/venv/bin/python3 tests/validate.py /tmp/makefun/radar-test-a
-    env -i PATH=/usr/bin:/bin /root/venv/bin/python3 tests/determinism.py
+    /tmp/makefun/runtime/node-v22.23.5-linux-x64/bin/node --test tests/model.test.mjs tests/plan.test.mjs
+    /tmp/makefun/runtime/node-v22.23.5-linux-x64/bin/node main.ts --input /tmp/makefun/radar-improvement/snapshot.json --output /tmp/makefun/radar-improvement/output-preview --prepare
+    /root/venv/bin/python3 tests/browser.py /tmp/makefun/radar-improvement/output-preview
+    /root/venv/bin/python3 tests/determinism.py
+    /root/venv/bin/python3 tests/validate.py /tmp/makefun/radar-improvement/output-a /tmp/makefun/radar-improvement/snapshot.json
 
-Browser QA uses `/usr/bin/google-chrome`, actual 1440×900 JPEG captures at quality 86, no visual stand-ins, and checks page/modal overflow at 390, 768, 1440, search/filter/sort/reset, token-status handling, exact baseline arithmetic, keyboard focus, sensitivity and offline requests. The three screenshots are regenerated from the final page/data, then the final main run copies them and builds the dossier.
+The commands above use a real snapshot copy in the task directory. `FIELD_SNAPSHOT` overrides the model/determinism input; `FIELD_NODE` overrides the validation/determinism Node executable. Tests write only inside that task directory or the repository screenshots directory.
+
+Browser QA uses `/usr/bin/google-chrome` and an owned ephemeral loopback server, shuts that server down afterward, records a Playwright trace, and blocks external requests. It captures actual 1440×900 JPEGs at quality 86 and checks page/modal overflow at 390, 768, 1440, search/filter/sort/reset, token-status handling, baseline arithmetic, keyboard focus, sensitivity, structured plan rendering, and visible budget/time fields. The four screenshots are regenerated from the final page/data, then the final main run copies all of them into the dossier. These automated checks are objective browser evidence, not a visual design review.
 
 `tests/validate.py` independently replicates all seven published structural gates: dashboard names/limits/offline references, board validity, rank/value ordering, watchlist coverage, farm-step bounds, fully decoded screenshot format/dimensions/size, and byte-exact dossier rebuild. It is not the private server scorer or an official eligibility verdict. `tests/determinism.py` runs main twice in separate output paths and compares every byte by SHA-256.
 
-Model tests cover missing data, symbol/ID classification, leap-day/future/invalid dates, bounded outliers, cohort shrinkage, independent arithmetic reproduction, name neutrality, input permutation, concrete access plans, and a changed input processed through main that changes ranking.
+Model tests cover missing data, symbol/ID classification, leap-day/future/invalid dates, bounded outliers, cohort shrinkage, independent arithmetic reproduction, name neutrality, input permutation, concrete access plans, and a changed input processed through main that changes ranking. Added plan tests cover structured/string equality, null fee assumptions, zero-cost research, reused capital, single fee allocation, review accounting, all-record range/text bounds and no NaN. A snapshot without usable observed peers still fails explicitly; no unsupported valuation fallback is invented. Null optional facts are supported; omitted required schema fields remain validation errors.
 
 ## Authorship and submission boundary
 
-Main, shared model, UI, styles and tests were authored in this standalone native session. Only `vendor/makefun-board.ts` was copied, after static inspection, byte-for-byte as required (SHA-256 `9ca51b6e5cd84fe46cb0efa61e2ea99365a1fb0e21f2b75e6007f977f0dc326e`). The downloaded make.fun CLI was not executed. Native session records were not accessed, altered, synthesized or exported. No subagents were used.
+This native continuation builds on accepted commit `eb9f94f4d38fefc43e2284400333f0e05fc07886` from original session `20261115_064915_c5e6f4`. It changes farm-plan modeling, detail rendering, tests, screenshots and documentation while preserving the valuation formulas and calibration. The original `vendor/makefun-board.ts` remains unchanged (SHA-256 `9ca51b6e5cd84fe46cb0efa61e2ea99365a1fb0e21f2b75e6007f977f0dc326e`). The downloaded make.fun CLI was not executed. Native session records were not accessed, altered, synthesized or exported. No subagents were used. The parent retains the complete original and continuation records.
 
-Files remain local and uncommitted. Intended repository: `bactiar291/token-launch-radar-makefun`. Publishing, transcript packaging, official eligibility checks and submission belong to the parent workflow. No official score, win rate or reward is known. MIT licensed.
+Continuation changes remain local and uncommitted. Repository: `bactiar291/token-launch-radar-makefun`. Publishing, transcript packaging, official eligibility checks and submission belong to the parent workflow. Local runs do not reproduce the production container's CPU, memory, process or filesystem isolation limits. No official score, win rate or reward is claimed here. MIT licensed.

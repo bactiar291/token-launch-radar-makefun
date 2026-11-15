@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: MIT
 """Independent checks of the seven published structural gates, not the private scorer."""
-import json, re, sys, subprocess, hashlib, stat
+import json, re, sys, subprocess, hashlib, stat, os
 from pathlib import Path
 from html.parser import HTMLParser
 from PIL import Image
 
 out=Path(sys.argv[1]).resolve()
-snapshot=Path(sys.argv[2] if len(sys.argv)>2 else '/tmp/makefun/token-radar-01-kit/input/snapshot.json')
+snapshot=Path(sys.argv[2] if len(sys.argv)>2 else '/tmp/makefun/radar-improvement/snapshot.json')
 s=json.loads(snapshot.read_text()); gates={}; details={}
 name=re.compile(r'^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$')
 net=re.compile(r'https?://',re.I)
@@ -99,7 +99,7 @@ def screenshots():
     return result
 def dossier():
     assert (out/'dossier.json').stat().st_size<=1572864
-    run=subprocess.run(['/usr/bin/node','tests/dossier.ts',str(out)],cwd=Path(__file__).resolve().parent.parent,env={'PATH':'/usr/bin:/bin'},capture_output=True,text=True)
+    run=subprocess.run([os.environ.get('FIELD_NODE','/tmp/makefun/runtime/node-v22.23.5-linux-x64/bin/node'),'tests/dossier.ts',str(out)],cwd=Path(__file__).resolve().parent.parent,env={'PATH':'/usr/bin:/bin'},capture_output=True,text=True)
     assert run.returncode==0,run.stderr
     return json.loads(run.stdout)
 for key,fn in [('dashboard_files',dashboard),('board_file',board),('sorted_by_value',sorted_values),('coverage',coverage),('farm_steps',steps),('screenshots',screenshots),('dossier_matches',dossier)]:gate(key,fn)

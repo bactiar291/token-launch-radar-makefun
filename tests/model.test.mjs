@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import '../dashboard/model.js';
 const M=globalThis.FieldModel;
-const input=process.argv.find(a=>a.endsWith('snapshot.json'))||'/tmp/makefun/token-radar-01-kit/input/snapshot.json';
+const input=process.env.FIELD_SNAPSHOT||'/tmp/makefun/radar-improvement/snapshot.json';
 const snapshot=JSON.parse(fs.readFileSync(input,'utf8'));
 const d=M.build(snapshot),cal=d.calibration,p=d.rows.find(r=>r.token_status==='no-record'&&r.change_7d!==null&&r.age_days!==null);
 const cleanEnv={PATH:'/usr/bin:/bin'};
@@ -74,7 +74,23 @@ test('no name ranking bias and input permutation determinism',()=>{
  assert.deepEqual(M.build(reverse).rows,d.rows);
 });
 test('category-aware access plans, concrete bounds and step lengths',()=>{
- for(const r of d.rows){assert.ok(r.farm_steps.length>=3&&r.farm_steps.length<=12);for(const s of r.farm_steps)assert.ok(s.trim().length>=20&&s.trim().length<=600,r.slug);}
+ for(const r of [...d.rows,...d.live]){
+  const plan=r.plan;
+  assert.deepEqual(plan.farm_steps,plan.steps.map(M.stepText));
+  if(r.farm_steps)assert.deepEqual(r.farm_steps,plan.farm_steps);
+  assert.ok(plan.steps.length>=3&&plan.steps.length<=12);
+  for(const s of plan.farm_steps)assert.ok(s.trim().length>=20&&s.trim().length<=600,r.slug);
+  for(const step of plan.steps)for(const key of ['capital_at_risk_usd_range','estimated_fee_usd_range','time_minutes_range']){
+   const range=step[key];assert.ok(range===null||(range.length===2&&range.every(Number.isFinite)&&range[0]>=0&&range[0]<=range[1]),r.slug+' '+key);
+  }
+  for(const [total,key] of [['estimated_fee_usd_range','estimated_fee_usd_range'],['active_time_minutes_range','time_minutes_range']]){
+   const expected=plan.steps.some(s=>s[key]===null)?null:[0,1].map(i=>Math.round(plan.steps.reduce((n,s)=>n+s[key][i],0)*100)/100);
+   assert.deepEqual(plan.totals[total],expected,r.slug);
+  }
+  assert.deepEqual(plan.totals.capital_at_risk_usd_range,[0,1].map(i=>Math.max(...plan.steps.map(s=>s.capital_at_risk_usd_range[i]))));
+  if(r.flags.length)assert.equal(plan.mode,'Monitor / access check');
+  assert.ok(!/NaN|undefined|Infinity/.test(JSON.stringify(plan)),r.slug);
+ }
  for(const cat of ['RWA','CEX','Risk Curators','Chain','Onchain Capital Allocator','Uncollateralized Lending']){
   const plan=M.farmPlan({...p,category:cat});assert.equal(plan.mode,'Monitor / access check');assert.match(plan.capital,/\$0/);assert.match(plan.farm_steps.join(' '),/closed|unclear/);
  }
@@ -83,8 +99,8 @@ test('category-aware access plans, concrete bounds and step lengths',()=>{
 });
 test('changed input runs entrypoint and changes ranking; output precedence and directory input',()=>{
  const changed=structuredClone(snapshot);const target=changed.protocols.find(x=>x.slug===d.rows.at(-1).slug);target.tvl_usd=500000000000;
- const dir='/tmp/makefun/radar-test-mutated';fs.mkdirSync(dir,{recursive:true});fs.writeFileSync(dir+'/snapshot.json',JSON.stringify(changed));
- const r=spawnSync(process.execPath,['main.ts','--prepare','--input',dir,'--output',dir+'/output'],{cwd:new URL('..',import.meta.url),env:{...cleanEnv,MAKEFUN_OUTPUT_DIR:'/tmp/makefun/radar-test-unused'},encoding:'utf8'});
+ const dir='/tmp/makefun/radar-improvement/mutated';fs.mkdirSync(dir,{recursive:true});fs.writeFileSync(dir+'/snapshot.json',JSON.stringify(changed));
+ const r=spawnSync(process.execPath,['main.ts','--prepare','--input',dir,'--output',dir+'/output'],{cwd:new URL('..',import.meta.url),env:{...cleanEnv,MAKEFUN_OUTPUT_DIR:'/tmp/makefun/radar-improvement/unused'},encoding:'utf8'});
  assert.equal(r.status,0,r.stderr);const rows=JSON.parse(fs.readFileSync(dir+'/output/board.json')).rows;
  assert.equal(rows[0].slug,target.slug);assert.notEqual(rows[0].slug,d.rows[0].slug);
  assert.notEqual(rows.find(p=>p.slug===target.slug).implied_value_usd,d.rows.at(-1).implied_value_usd);
