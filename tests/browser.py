@@ -4,6 +4,8 @@ from pathlib import Path
 from playwright.async_api import async_playwright
 
 out=Path(sys.argv[1]).resolve(); repo=Path.cwd(); shots=repo/'screenshots'; shots.mkdir(exist_ok=True)
+artifacts=repo.parent/'artifacts'
+assert json.loads((artifacts/'preview-determinism.json').read_text())['identical_bytes']
 handler=functools.partial(SimpleHTTPRequestHandler,directory=str(out))
 server=ThreadingHTTPServer(('127.0.0.1',0),handler)
 origin=f'http://127.0.0.1:{server.server_port}'
@@ -26,7 +28,13 @@ async def main():
     await page.wait_for_selector('#rows tr')
     checks['default_candidate_view']=(await page.locator('#status').input_value())=='no-record'
     checks['baseline_browser_equals_export']=await page.evaluate('FIELD_DATA.rows.every(p => FieldModel.score(p,FIELD_DATA.as_of,FIELD_DATA.calibration).implied_value_usd === p.implied_value_usd)')
-    await page.screenshot(path=str(shots/'1-board.jpg'),type='jpeg',quality=86)
+    await page.screenshot(path=str(shots/'1-board.jpg'),type='jpeg',quality=90)
+    await page.locator('#open-evidence').click()
+    checks['model_evidence']='Untouched audit · 26 groups' in await page.locator('.audit-body').inner_text()
+    checks['model_limitations']='NOT validation of future launches or airdrop returns' in await page.locator('.audit-body').inner_text()
+    await page.screenshot(path=str(shots/'4-evidence.jpg'),type='jpeg',quality=90)
+    await page.keyboard.press('Escape')
+    if (shots/'4-plan.jpg').exists(): (shots/'4-plan.jpg').unlink()
     # The real watchlist record Curvance has a conditional lending plan and a usable category cohort.
     await page.locator('#search').fill('curvance')
     checks['search']=(await page.locator('#rows tr').count())==1
@@ -38,10 +46,16 @@ async def main():
     checks['detail_peer_table']=await page.locator('.peer-table tbody tr').count()>=5
     checks['structured_steps_match_ui']=await page.evaluate('(()=>{const p=FIELD_DATA.rows.find(p=>p.slug==="curvance");return [...document.querySelectorAll(".steps li")].every((li,i)=>{const s=p.plan.steps[i];return li.querySelector("h4").textContent===s.title&&li.querySelector("p").textContent===s.action&&li.textContent.includes(s.prerequisite)&&li.textContent.includes(s.completion_evidence)&&li.textContent.includes(FieldModel.rangeText(s.estimated_fee_usd_range))&&li.textContent.includes(FieldModel.rangeText(s.time_minutes_range,"min"))})})()')
     checks['budget_summary_visible']=await page.locator('.plan-budget').is_visible() and 'Total active time' in await page.locator('.plan-budget').inner_text()
-    checks['valuation_and_budget_in_view']=await page.evaluate('Boolean([".big-value",".plan-budget",".step-budget"].every(sel=>{const r=document.querySelector(sel).getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight}))')
-    await page.screenshot(path=str(shots/'2-detail.jpg'),type='jpeg',quality=86)
+    checks['valuation_and_budget_in_view']=await page.evaluate('Boolean([".big-value",".plan-budget",".budget-inputs"].every(sel=>{const r=document.querySelector(sel).getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight}))')
+    checks['unknown_fee_initial']='Quote required' in await page.locator('#budget-result').inner_text()
+    await page.locator('#quoted-fees').fill('12')
+    await page.locator('#hourly-cost').fill('30')
+    checks['fee_cap_and_resource_arithmetic']='Over fee cap' in await page.locator('#budget-result').inner_text() and '$82–119.5' in await page.locator('#budget-result').inner_text()
+    await page.locator('#quoted-fees').fill('5')
+    checks['fee_within_cap']='Within fee cap' in await page.locator('#budget-result').inner_text()
+    await page.screenshot(path=str(shots/'2-detail.jpg'),type='jpeg',quality=90)
     await page.locator('.steps li').nth(3).scroll_into_view_if_needed()
-    await page.screenshot(path=str(shots/'4-plan.jpg'),type='jpeg',quality=86)
+
     checks['exit_evidence_present']='Exit & reconcile' in await page.locator('.steps').inner_text()
     # Tab stays in native modal and Escape restores originating row focus.
     await page.keyboard.press('Tab')
@@ -56,7 +70,8 @@ async def main():
     await page.locator('[data-sort="change_7d"]').focus()
     await page.keyboard.press('Enter')
     checks['sort_descending']=await page.evaluate('(()=>{const a=[...document.querySelectorAll("#rows tr")].map(tr=>FIELD_DATA.rows.find(p=>p.slug===tr.dataset.slug).change_7d).filter(x=>x!==null);return a.every((n,i)=>i===0||a[i-1]>=n)})()')
-    await page.screenshot(path=str(shots/'3-filtered.jpg'),type='jpeg',quality=86)
+    checks['global_and_view_rank']=await page.evaluate('document.querySelector("[data-sort=rank]").textContent.includes("Global") && [...document.querySelectorAll(".view-position")].every((el,i)=>el.textContent==="view "+(i+1))')
+    await page.screenshot(path=str(shots/'3-filtered.jpg'),type='jpeg',quality=90)
     await page.locator('[data-sort="change_7d"]').click()
     checks['sort_ascending']=await page.evaluate('(()=>{const a=[...document.querySelectorAll("#rows tr")].map(tr=>FIELD_DATA.rows.find(p=>p.slug===tr.dataset.slug).change_7d).filter(x=>x!==null);return a.every((n,i)=>i===0||a[i-1]<=n)})()')
     await page.locator('#search').fill('zzzz-no-match')
@@ -101,9 +116,9 @@ async def main():
     checks['responsive_no_overflow']=not any(v for x in layouts.values() for v in x.values())
     checks['no_js_errors']=not errors
     checks['offline_only']=all(x.startswith(origin+'/') for x in requests)
-    await page.context.tracing.stop(path=str(out/'browser-trace.zip'))
+    await page.context.tracing.stop(path=str(artifacts/'browser-trace.zip'))
     result={'checks':checks,'layouts':layouts,'console_errors':errors,'requests':requests,'page_url':origin+'/dashboard/index.html','input_sha256':await page.evaluate('FIELD_DATA.input_sha256'),'screenshots':[{'path':str(p),'bytes':p.stat().st_size,'sha256':hashlib.sha256(p.read_bytes()).hexdigest()} for p in sorted(shots.glob('*.jpg'))], 'visual_review':False}
-    (out/'browser-test.json').write_text(json.dumps(result,indent=2)+'\n')
+    (artifacts/'browser-test.json').write_text(json.dumps(result,indent=2)+'\n')
     print(json.dumps(result,indent=2)); await browser.close()
     if not all(checks.values()): raise SystemExit(1)
 try:

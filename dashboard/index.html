@@ -32,7 +32,7 @@
 <div class="results-line"><span id="results" role="status" aria-live="polite"></span><span id="sort-note">Select a protocol to open its research file ↗</span></div>
 <div class="table-wrap">
 <table id="board"><caption class="sr-only">Protocol register. Values are modeled market-cap proxies; token-bearing references show reported market cap.</caption><thead><tr>
-<th class="rank-col" data-key="rank" aria-sort="ascending"><button data-sort="rank">Rank ↑</button></th>
+<th class="rank-col" data-key="rank" aria-sort="ascending"><button data-sort="rank">Global ↑</button></th>
 <th data-key="name"><button data-sort="name">Protocol</button></th>
 <th class="tvl-col" data-key="tvl_usd"><button data-sort="tvl_usd">TVL</button></th>
 <th class="growth-col" data-key="change_7d"><button data-sort="change_7d">7d Δ</button></th>
@@ -42,21 +42,23 @@
 <div id="empty" class="empty" hidden><h3>No matching research files</h3><p>Try a broader category or clear your filters.</p><button id="empty-reset">Clear filters</button></div>
 </div>
 <div class="pagination"><span id="page-info"></span><div><button id="previous" aria-label="Previous page">← Previous</button><button id="next" aria-label="Next page">Next →</button></div></div>
-<p class="table-note">Rank is value, not conviction. Flagged structures remain in the register for completeness. “Tracked” measures time in the index, not founding date or time without a token.</p>
+<p class="table-note">Global rank covers every candidate; gaps come from filters. View position follows the current sort. Rank is value, not conviction. “Tracked” is time in the index, not time without a token.</p>
 </section>
 <aside class="evidence" aria-label="Model and evidence notebook">
 <div class="side-heading"><span class="eyebrow">02 / MARGIN NOTES</span><h2>The value lens</h2></div>
 <p class="side-lead">What might comparable market capitalization imply at this scale?</p>
-<div class="formula-display"><span>TVL</span><b>×</b><span>peer multiple</span><b>×</b><span>growth</span><b>×</b><span>tracking tenure</span></div>
+<div class="formula-display"><span>Observed peers</span><b>→</b><span>tested log-space fit</span><b>→</b><span>market-cap proxy</span></div>
 <p class="tiny">Market-cap proxy only. Not FDV, a token unit price, or your potential reward.</p>
 <div class="calibration-summary" id="calibration-summary"></div>
+<section id="model-evidence" aria-label="Held-out model evidence"></section>
+<button id="open-evidence" class="text-button">Inspect model evidence ↗</button>
 <details class="model-details"><summary>Read the method & caveats</summary><div id="method"></div></details>
 <div class="sensitivity"><div class="side-title"><h3>Stress the assumptions</h3><span class="tiny">LOCAL SCENARIO</span></div>
 <label for="peer-weight">Category influence <output id="peer-output">100%</output></label><input id="peer-weight" type="range" min="0" max="100" value="100" step="10">
-<label for="growth-weight">7d growth weight <output id="growth-output">0.35</output></label><input id="growth-weight" type="range" min="0" max="70" value="35" step="5">
-<label for="tenure-weight">Tracking weight <output id="tenure-output">0.20</output></label><input id="tenure-weight" type="range" min="0" max="40" value="20" step="5">
+<label for="growth-weight">Fitted growth influence <output id="growth-output">100%</output></label><input id="growth-weight" type="range" min="0" max="70" value="35" step="5">
+<label for="tenure-weight">Fitted tracking influence <output id="tenure-output">100%</output></label><input id="tenure-weight" type="range" min="0" max="40" value="20" step="5">
 <p id="scenario-note" class="tiny" role="status">Baseline matches board.json. Sliders recalculate values and ranks across all candidates.</p><button class="text-button" id="restore">Restore baseline</button></div>
-<div class="legend"><h3>Read the register</h3><p><span class="watch-dot"></span> Watchlist record</p><p><span class="flag-mark">!</span> Structure or access needs review</p><p><span class="range-demo"></span> Low–high scenario envelope</p></div>
+<div class="legend"><h3>Read the register</h3><p><span class="watch-dot"></span> Watchlist record</p><p><span class="flag-mark">!</span> Structure or access needs review</p><p><span class="range-demo"></span> Empirical residual range; no launch guarantee</p></div>
 <div class="source-note"><span class="eyebrow">SEALED SOURCE / ONE OBSERVATION</span><p id="source"></p><p>No historical series is available. 7d Δ is the supplied change, not a chart.</p></div>
 </aside>
 </main>

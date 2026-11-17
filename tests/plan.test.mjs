@@ -9,6 +9,17 @@ const categories=['Lending','Dexs','Yield','Yield Aggregator','Farm','Liquidity 
 const chains=[[],['Ethereum'],['Solana'],['Base'],['unpriced'],['Solana','Ethereum']];
 const sum=(steps,key)=>steps.some(s=>s[key]===null)?null:[0,1].map(i=>Math.round(steps.reduce((n,s)=>n+s[key][i],0)*100)/100);
 const range=r=>r===null||(Array.isArray(r)&&r.length===2&&r.every(Number.isFinite)&&r[0]>=0&&r[0]<=r[1]);
+test('budget decision uses user quotes, separates capital and time, preserves unknowns',()=>{
+ const plan=M.farmPlan(p);
+ const b=M.budgetCheck(plan,200,12,30);
+ assert.equal(b.fee_cap_usd,10);assert.equal(b.fee_pct,6);assert.equal(b.status,'Over fee cap — skip or re-quote');
+ assert.deepEqual(b.resource_cost_usd_range,[82,119.5]);
+ assert.equal(M.budgetCheck(plan,200,null,0).status,'Quote required');
+ assert.equal(M.budgetCheck(plan,200,0,0).status,'Within fee cap; access and risk checks still required');
+ assert.equal(M.budgetCheck(plan,0,1,0).fee_pct,null);
+ assert.equal(M.budgetCheck(M.farmPlan({...p,category:'RWA'}),200,2,30).status,'Research only — no deposit');
+ assert.equal(M.budgetCheck(plan,200,-1,30).resource_cost_usd_range,null);
+});
 test('structured steps are the exact export source, with valid text and numeric ranges',()=>{
  for(const category of categories)for(const chain of chains){
   const plan=M.farmPlan({...p,category,chains:chain});

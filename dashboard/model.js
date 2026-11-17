@@ -51,23 +51,32 @@
     if(new Set(s.watchlist).size!==s.watchlist.length || s.watchlist.some(x=>!ids.has(x))) throw Error('Invalid watchlist');
     return s;
   }
+  function tokenGroups(protocols) {
+    // Conservative connected components: shared IDs OR tickers, including ineligible aliases.
+    // Ticker collisions may over-merge; failing to link aliases would leak token caps into tests.
+    const rows=protocols.filter(hasToken).sort((a,b)=>cmp(a.slug,b.slug)), parent=rows.map((_,i)=>i), seen=new Map();
+    const root=i=>{while(parent[i]!==i)i=parent[i];return i;};
+    rows.forEach((p,i)=>{
+      const keys=[p.gecko_id&&'id:'+p.gecko_id.toLowerCase(),p.symbol&&'symbol:'+p.symbol.toUpperCase()].filter(Boolean);
+      for(const key of keys){if(seen.has(key))parent[root(i)]=root(seen.get(key));else seen.set(key,i);}
+    });
+    const groups=new Map();
+    rows.forEach((p,i)=>{const k=root(i);if(!groups.has(k))groups.set(k,[]);groups.get(k).push(p);});
+    return [...groups.values()].map(members=>({id:members.map(p=>p.gecko_id?'id:'+p.gecko_id.toLowerCase():'symbol:'+p.symbol.toUpperCase()).sort(cmp)[0],members})).sort((a,b)=>cmp(a.id,b.id));
+  }
   function calibrate(protocols) {
-    // One representative per token identity: largest TVL record, not a sum of overlapping versions.
-    const identities=new Map(), audit=[];
-    for(const p of protocols) {
-      if(!hasToken(p)) continue;
-      let reason=null;
-      if(!(number(p.mcap_usd)&&p.mcap_usd>0)) reason='No positive market cap';
-      else if(assetCategories.has(p.category)) reason='Asset / custody category excluded from governance proxy';
-      if(reason) { audit.push({slug:p.slug,reason});continue; }
-      const key=p.gecko_id ? 'id:'+p.gecko_id.toLowerCase() : 'symbol:'+p.symbol.toUpperCase();
-      const prior=identities.get(key);
-      if(!prior || p.tvl_usd>prior.tvl_usd || (p.tvl_usd===prior.tvl_usd&&cmp(p.slug,prior.slug)<0)) {
-        if(prior) audit.push({slug:prior.slug,reason:'Duplicate token identity; larger TVL representative retained'});
-        identities.set(key,p);
-      } else audit.push({slug:p.slug,reason:'Duplicate token identity; larger TVL representative retained'});
+    const raw=[],audit=[];
+    for(const group of tokenGroups(protocols)) {
+      const eligible=[];
+      for(const p of group.members){
+        const reason=!(number(p.mcap_usd)&&p.mcap_usd>0)?'No positive market cap':!(number(p.tvl_usd)&&p.tvl_usd>0)?'No positive TVL':assetCategories.has(p.category)?'Asset / custody category excluded from governance proxy':null;
+        if(reason)audit.push({slug:p.slug,reason});else eligible.push(p);
+      }
+      eligible.sort((a,b)=>b.tvl_usd-a.tvl_usd||cmp(a.slug,b.slug));
+      if(eligible.length)raw.push({...eligible[0],token_group:group.id});
+      for(const p of eligible.slice(1))audit.push({slug:p.slug,reason:'Duplicate token identity; larger TVL representative retained'});
     }
-    const raw=[...identities.values()].sort((a,b)=>cmp(a.slug,b.slug));
+    raw.sort((a,b)=>cmp(a.slug,b.slug));audit.sort((a,b)=>cmp(a.slug,b.slug));
     if(!raw.length) throw Error('No observed token-bearing peers with usable market cap');
     const ratios=raw.map(p=>p.mcap_usd/p.tvl_usd);
     const lo=quantile(ratios,.10), hi=quantile(ratios,.90);
@@ -81,21 +90,32 @@
     const settings={...DEFAULTS,...parameters}, cohort=calibration.categories[p.category||'Unknown'] || {n:0}, g=calibration.global;
     const weight=cohort.n>=MIN_PEERS ? cohort.n/(cohort.n+PRIOR)*settings.peerWeight : 0;
     const blend=q=>Math.exp(weight*Math.log(cohort[q]||g[q])+(1-weight)*Math.log(g[q]));
-    const ratio=blend('median'), age=ageDays(asOf,p.listed_at);
+    let ratio=blend('median');const age=ageDays(asOf,p.listed_at);
     const bounded=number(p.change_7d)?clamp(p.change_7d,-50,100):null;
-    const growth=bounded===null?1:1+settings.growthWeight*bounded/100;
+    let growth=bounded===null?1:1+settings.growthWeight*bounded/100;
     // Tenure is time in this index, not founding age or verified time without a token.
-    const tenure=age===null?1:1+settings.tenureWeight*(Math.min(age,1095)/1095-.5);
+    let tenure=age===null?1:1+settings.tenureWeight*(Math.min(age,1095)/1095-.5);
+    const research=calibration.research, kind=research?.available?research.selected:'legacy';
+    if(kind==='ratio'){growth=bounded===null?1:1+(settings.growthWeight-DEFAULTS.growthWeight)*bounded/100;tenure=age===null?1:1+(settings.tenureWeight-DEFAULTS.tenureWeight)*(Math.min(age,1095)/1095-.5);}
+    if(kind==='log_ridge'){
+      const f=research.fit,b=f.coefficients,z=(v,j)=>(v-f.means[j])/f.scales[j];
+      const ci=f.categories.indexOf(p.category||'Unknown');
+      const logCore=b[0]+b[1]*z(Math.log(p.tvl_usd),0)-b[2]*f.means[1]/f.scales[1]-b[3]*f.means[2]/f.scales[2]+b[4]*z(bounded===null?1:0,3)+b[5]*z(age===null?1:0,4)+(ci<0?0:b[6+ci]*settings.peerWeight);
+      ratio=Math.exp(logCore)/p.tvl_usd;
+      growth=bounded===null?1:Math.exp(b[2]*(bounded/100)/f.scales[1]*settings.growthWeight/DEFAULTS.growthWeight);
+      tenure=age===null?1:Math.exp(b[3]*(Math.min(age,1095)/1095)/f.scales[2]*settings.tenureWeight/DEFAULTS.tenureWeight);
+    }
     const missing=(bounded===null?1:0)+(age===null?1:0)+(!p.category?1:0);
     const structure=flags(p).length>0;
     const uncertainty=1.25+(cohort.n<MIN_PEERS?.35:0)+missing*.20+(structure?.25:0);
     const round=x=>Math.max(1,Math.min(100000000000000,Math.round(x)));
     const base=p.tvl_usd*ratio*growth*tenure*settings.scale;
-    const low=round(p.tvl_usd*Math.min(ratio,blend('q25'))*growth*tenure*settings.scale/uncertainty);
-    const high=round(p.tvl_usd*Math.max(ratio,blend('q75'))*growth*tenure*settings.scale*uncertainty);
+    const factor=research?.available?research.residual.factor:null;
+    const low=round(factor?base/factor:p.tvl_usd*Math.min(ratio,blend('q25'))*growth*tenure*settings.scale/uncertainty);
+    const high=round(factor?base*factor:p.tvl_usd*Math.max(ratio,blend('q75'))*growth*tenure*settings.scale*uncertainty);
     return {implied_value_usd:round(base),low_usd:low,high_usd:high,age_days:age,
-      model:{ratio,growth_multiplier:growth,tenure_multiplier:tenure,scale:settings.scale,bounded_growth_pct:bounded,category_weight:weight,cohort_n:cohort.n,global_median:g.median,category_median:cohort.median??null,uncertainty,missing_count:missing},
-      uncertainty_reasons:[cohort.n<MIN_PEERS?'Sparse category: global fallback':'Category peers remain imperfect substitutes',...(bounded===null?['7d change unknown; neutral factor']:[]),...(age===null?['Tracking tenure unknown; neutral factor']:[]),...(structure?['Structure / access ambiguity']:[]),'Scenario envelope, not a statistical confidence interval']};
+      model:{kind,residual_factor:factor,ratio,growth_multiplier:growth,tenure_multiplier:tenure,scale:settings.scale,bounded_growth_pct:bounded,category_weight:weight,cohort_n:cohort.n,global_median:g.median,category_median:cohort.median??null,uncertainty,missing_count:missing},
+      uncertainty_reasons:[cohort.n<MIN_PEERS?'Sparse category evidence':'Category peers remain imperfect substitutes',...(bounded===null?['7d change unknown; neutral growth factor; fitted missing indicator when available']:[]),...(age===null?['Tracking tenure unknown; neutral tenure factor; fitted missing indicator when available']:[]),...(structure?['Structure / access ambiguity; calibration may not transfer']:[]),factor?'Empirical observed-token residual range; no future-launch coverage guarantee':'Scenario envelope, not a statistical confidence interval']};
   }
   const rangeText=(r,unit='USD')=>r===null?'Unknown':(unit==='USD'?'$':'')+(r[0]===r[1]?r[0]:r[0]+'–'+r[1])+(unit==='min'?' min':'');
   function stepText(s) {
@@ -132,17 +152,25 @@
       assumptions:'All costs and times are authored planning assumptions, not snapshot facts or returns. Capital is reused, not added per step; fees are separate and allocated once. Review minutes are included in active time. Lockups and settlement time are unknown.',
       risks:monitor?'Custody, legal restrictions, unclear token rights, asset backing and redemption risk.':risks+' Capital can be lost in full.',farm_steps:steps.map(stepText)};
   }
-  function build(s, parameters=DEFAULTS) {
+  function budgetCheck(plan,capital,fees,hourly) {
+    const valid=x=>number(x)&&x>=0, monitor=plan.mode!=='Conditional pilot';
+    const cap=valid(capital)?capital*.05:null, feePct=valid(fees)&&valid(capital)&&capital>0?fees/capital*100:null;
+    const cost=valid(fees)&&valid(hourly)?plan.totals.active_time_minutes_range.map(t=>Math.round((fees+t/60*hourly)*100)/100):null;
+    const status=monitor?'Research only — no deposit':!valid(capital)||capital<=0?'Enter positive pilot capital':!valid(fees)?'Quote required':fees>cap?'Over fee cap — skip or re-quote':'Within fee cap; access and risk checks still required';
+    return {fee_cap_usd:cap,fee_pct:feePct,resource_cost_usd_range:cost,status};
+  }
+  function build(s, parameters=DEFAULTS, research=null) {
     validateSnapshot(s);
     const calibration=calibrate(s.protocols), watch=new Set(s.watchlist);
+    if(research)calibration.research=research;
     const rows=s.protocols.filter(p=>!hasToken(p)).map(p=>{
       const plan=farmPlan(p), f=flags(p);
       return {...p,...score(p,s.as_of,calibration,parameters),watchlist:watch.has(p.slug),token_status:f.length?'ambiguous':'no-record',flags:f,plan,farm_steps:plan.farm_steps};
     }).sort((a,b)=>b.implied_value_usd-a.implied_value_usd||cmp(a.slug,b.slug)).map((p,i)=>({...p,rank:i+1}));
     const live=s.protocols.filter(hasToken).map(p=>({...p,age_days:ageDays(s.as_of,p.listed_at),token_status:'recorded',flags:flags(p),plan:farmPlan(p)})).sort((a,b)=>b.tvl_usd-a.tvl_usd||cmp(a.slug,b.slug));
     if(s.watchlist.some(slug=>!rows.some(p=>p.slug===slug))) throw Error('Watchlist unexpectedly contains a token-bearing record');
-    return {version:'fieldnote-1.0',as_of:s.as_of,source:s.source,floor_usd:s.floor_usd,parameters:{...DEFAULTS,...parameters},calibration,rows,live,
+    return {version:'fieldnote-2.0',as_of:s.as_of,source:s.source,floor_usd:s.floor_usd,parameters:{...DEFAULTS,...parameters},calibration,rows,live,
       summary:{protocols:s.protocols.length,candidates:rows.length,watchlist:s.watchlist.length,unflagged:rows.filter(p=>!p.flags.length).length,flagged:rows.filter(p=>p.flags.length).length,live:live.length}};
   }
-  root.FieldModel={DEFAULTS,MIN_PEERS,PRIOR,quantile,dateValue,ageDays,hasToken,flags,validateSnapshot,calibrate,score,rangeText,stepText,farmPlan,build};
+  root.FieldModel={DEFAULTS,MIN_PEERS,PRIOR,quantile,dateValue,ageDays,hasToken,flags,validateSnapshot,tokenGroups,calibrate,score,rangeText,stepText,farmPlan,budgetCheck,build};
 })(globalThis);

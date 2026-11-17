@@ -4,6 +4,7 @@ import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import './dashboard/model.js';
+import { evaluate } from './lib/research.js';
 import { buildDossier } from './vendor/makefun-board.ts';
 
 const root=fileURLToPath(new URL('.',import.meta.url));
@@ -19,11 +20,13 @@ for(let i=2;i<process.argv.length;i++) {
 }
 const input=statSync(options.input).isDirectory()?join(options.input,'snapshot.json'):options.input;
 const bytes=readFileSync(input), snapshot=JSON.parse(bytes.toString('utf8'));
-const data=globalThis.FieldModel.build(snapshot);
+const research=evaluate(snapshot);
+const data=globalThis.FieldModel.build(snapshot,globalThis.FieldModel.DEFAULTS,research);
 data.input_sha256=createHash('sha256').update(bytes).digest('hex');
 const out=resolve(options.output);
 if(out===resolve(root)||out===resolve(input)||out===resolve(options.input)) throw Error('Output must be separate from source and input');
 mkdirSync(out,{recursive:true});
+writeFileSync(join(out,'research.json'),JSON.stringify({input_sha256:data.input_sha256,...research})+'\n');
 writeFileSync(join(out,'board.json'),JSON.stringify({schema:'fieldnote/board/v1',as_of:data.as_of,source:data.source,input_sha256:data.input_sha256,model:data.version,parameters:data.parameters,rows:data.rows})+'\n');
 writeFileSync(join(out,'data.js'),'window.FIELD_DATA='+JSON.stringify(data).replace(/</g,'\\u003c').replace(/\u2028/g,'\\u2028').replace(/\u2029/g,'\\u2029')+';\n');
 cpSync(join(root,'dashboard'),join(out,'dashboard'),{recursive:true});

@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import '../dashboard/model.js';
 const M=globalThis.FieldModel;
-const input=process.env.FIELD_SNAPSHOT||'/tmp/makefun/radar-improvement/snapshot.json';
+const input=process.env.FIELD_SNAPSHOT||'/tmp/makefun/campaign-20261117/kits/token-radar-01/verified/token-radar-01-kit/input/snapshot.json';
 const snapshot=JSON.parse(fs.readFileSync(input,'utf8'));
 const d=M.build(snapshot),cal=d.calibration,p=d.rows.find(r=>r.token_status==='no-record'&&r.change_7d!==null&&r.age_days!==null);
 const cleanEnv={PATH:'/usr/bin:/bin'};
@@ -99,8 +99,8 @@ test('category-aware access plans, concrete bounds and step lengths',()=>{
 });
 test('changed input runs entrypoint and changes ranking; output precedence and directory input',()=>{
  const changed=structuredClone(snapshot);const target=changed.protocols.find(x=>x.slug===d.rows.at(-1).slug);target.tvl_usd=500000000000;
- const dir='/tmp/makefun/radar-improvement/mutated';fs.mkdirSync(dir,{recursive:true});fs.writeFileSync(dir+'/snapshot.json',JSON.stringify(changed));
- const r=spawnSync(process.execPath,['main.ts','--prepare','--input',dir,'--output',dir+'/output'],{cwd:new URL('..',import.meta.url),env:{...cleanEnv,MAKEFUN_OUTPUT_DIR:'/tmp/makefun/radar-improvement/unused'},encoding:'utf8'});
+ const dir='/tmp/makefun/campaign-20261117/token-radar-01/artifacts/mutated';fs.mkdirSync(dir,{recursive:true});fs.writeFileSync(dir+'/snapshot.json',JSON.stringify(changed));
+ const r=spawnSync(process.execPath,['main.ts','--prepare','--input',dir,'--output',dir+'/output'],{cwd:new URL('..',import.meta.url),env:{...cleanEnv,MAKEFUN_OUTPUT_DIR:'/tmp/makefun/campaign-20261117/token-radar-01/artifacts/unused'},encoding:'utf8'});
  assert.equal(r.status,0,r.stderr);const rows=JSON.parse(fs.readFileSync(dir+'/output/board.json')).rows;
  assert.equal(rows[0].slug,target.slug);assert.notEqual(rows[0].slug,d.rows[0].slug);
  assert.notEqual(rows.find(p=>p.slug===target.slug).implied_value_usd,d.rows.at(-1).implied_value_usd);
